@@ -3,7 +3,7 @@
 #reader(lib "htdp-beginner-reader.ss" "lang")((modname UfoTankMissile) (read-case-sensitive #t) (teachpacks ((lib "image.rkt" "teachpack" "2htdp") (lib "batch-io.rkt" "teachpack" "2htdp") (lib "universe.rkt" "teachpack" "2htdp"))) (htdp-settings #(#t constructor repeating-decimal #f #t none #f ((lib "image.rkt" "teachpack" "2htdp") (lib "batch-io.rkt" "teachpack" "2htdp") (lib "universe.rkt" "teachpack" "2htdp")))))
 ; constants: 
 (define WIDTH 400)
-(define HEIGHT 200)
+(define HEIGHT 300)
  
 ; visual constants: 
 (define MT (empty-scene WIDTH HEIGHT))
@@ -17,7 +17,11 @@
 (define TANK-CENTER-X (/ TANK-WIDTH 2))
 (define TANK-BOTTOM (- HEIGHT (/ TANK-HEIGHT 2)))
 (define MISSILE (triangle 10 "solid" "red"))
-(define REACH-DIST 5)
+(define REACH-DIST 10)
+(define RAND-DIST 3)
+(define TANK-VEL 3)
+(define UFO-VEL 3)
+(define MISSILE-VEL 6)
 
 ; A UFO is Posn. 
 ; interpretation (make-posn x y) is the UFO's current location 
@@ -176,7 +180,163 @@
                img))
 
 ; SIGS -> SIGS
+; move the UFO randomly
 (define (si-move s)
   (si-move-proper s (create-random-number s)))
+
+; SIGS Number -> SIGS
+; move all objects according to their velocity and move the UFO horizontally to ufo-posn-x
+(check-expect (si-move-proper 
+               (make-aim (make-posn 100 100) (make-tank 100 TANK-VEL)) 110)
+              (make-aim (make-posn 110 (+ 100 UFO-VEL)) (make-tank (+ 100 TANK-VEL) TANK-VEL)))
+(check-expect (si-move-proper
+               (make-fired (make-posn 100 100) 
+                           (make-tank 100 TANK-VEL) 
+                           (make-posn 100 150)) 110)
+              (make-fired (make-posn 110 (+ 100 UFO-VEL)) 
+                          (make-tank (+ 100 TANK-VEL) TANK-VEL) 
+                          (make-posn 100 (- 150 MISSILE-VEL))))
+
+(define (si-move-proper s ufo-posn-x)
+  (cond
+    [(aim? s) (make-aim 
+               (move-ufo (aim-ufo s) ufo-posn-x) 
+               (move-tank (aim-tank s)))]
+    [(fired? s) (make-fired 
+                 (move-ufo (fired-ufo s) ufo-posn-x) 
+                 (move-tank (fired-tank s)) 
+                 (move-missile (fired-missile s)))]))
+
+; POSN Number -> POSN
+; moves the UFO vertically according to its velocity and horizontally to ufo-posn-x
+(define (move-ufo ufo ufo-posn-x)
+  (make-posn ufo-posn-x (+ (posn-y ufo) UFO-VEL)))
+
+; Tank -> Tank
+; moves the tank according to its velocity
+(define (move-tank tank)
+  (make-tank (+ (tank-loc tank) (tank-vel tank)) (tank-vel tank)))
+
+; POSN -> POSN
+; moves the missile upwards according to its velocity
+(define (move-missile missile)
+  (make-posn (posn-x missile) (- (posn-y missile) MISSILE-VEL)))
+
+; SIGS -> Number
+; creates a random that is within the UFO posn x +- RAND-DIST
+(check-within (create-random-number (make-aim (make-posn 100 0) 0)) 100 RAND-DIST)
+(check-within (create-random-number (make-fired (make-posn 100 0) 0 0)) 100 RAND-DIST)
+(check-within (create-random-number (make-aim (make-posn 0 0) 0)) 0 RAND-DIST)
+(check-within (create-random-number (make-aim (make-posn WIDTH 0) 0)) (- WIDTH (/ RAND-DIST 2)) (/ RAND-DIST 2))
+               
+(define (create-random-number s)
+  (limit-number
+   (+ (random-sign (random RAND-DIST))
+      (cond
+        [(aim? s) (posn-x (aim-ufo s))]
+        [(fired? s) (posn-x (fired-ufo s))]))
+   0 WIDTH))
+
+; Number -> Number
+; set the sign randomly
+(define (random-sign number)
+  (if (= (random 2) 1) 
+      (- number)
+      number))
+
+; Number Number Number -> Number
+; limits value to max >= value >= min
+(check-expect (limit-number 10 0 20) 10)
+(check-expect (limit-number -1 0 20) 0)
+(check-expect (limit-number 21 0 20) 20)
+
+(define (limit-number value min max)
+  (cond
+    [(< value min) min]
+    [(> value max) max]
+    [else value]))
+
+; SIGS String -> SIGS
+; changes the game state according to these key events:
+; - pressing the left arrow ensures that the tank moves left
+; - pressing the right arrow ensures that the tank moves right
+; - pressing the space bar fires the missile if it hasn’t been launched yet
+(check-expect (si-control (make-aim 0 (make-tank 10 3)) "left") (make-aim 0 (make-tank 10 -3)))
+(check-expect (si-control (make-aim 0 (make-tank 10 -3)) "right") (make-aim 0 (make-tank 10 3)))
+(check-expect (si-control (make-aim 0 (make-tank 10 3)) "right") (make-aim 0 (make-tank 10 3)))
+(check-expect (si-control (make-aim 0 (make-tank 10 -3)) "left") (make-aim 0 (make-tank 10 -3)))
+(check-expect (si-control (make-fired 0 (make-tank 10 3) 0) "left") (make-fired 0 (make-tank 10 -3) 0))
+(check-expect (si-control (make-aim 0 (make-tank 10 3)) " ") 
+              (make-fired 0 (make-tank 10 3) (make-posn 10 HEIGHT)))
+(check-expect (si-control (make-fired 0 (make-tank 10 3) (make-posn 10 0)) " ") 
+              (make-fired 0 (make-tank 10 3) (make-posn 10 0)))
+
+(define (si-control s ke)
+  (cond
+    [(string=? "left" ke) (ensure-dir s ke)]
+    [(string=? "right" ke) (ensure-dir s ke)]
+    [(string=? " " ke) (ensure-fired s)]
+    [else s]))
+
+; SIGS String -> SIGS
+; ensures that that the velocity of the tank correponds to dir
+(define (ensure-dir s dir)
+  (make-same-with-tank s
+                       (make-tank (tank-loc (aim-or-fired-tank s))
+                                  (cond
+                                    [(reverse-sign? (tank-vel (aim-or-fired-tank s)) dir) (- (tank-vel (aim-or-fired-tank s)))]
+                                    [else (tank-vel (aim-or-fired-tank s))]))))
+
+; Number String -> Boolean
+; checks if the sign of vel shall be reversed
+(check-expect (reverse-sign? 1 "left") true)
+(check-expect (reverse-sign? -1 "left") false)
+(check-expect (reverse-sign? -1 "right") true)
+(check-expect (reverse-sign? 1 "right") false)
+
+(define (reverse-sign? vel ke)
+  (cond
+    [(string=? "left" ke) (>= vel 0)]
+    [(string=? "right" ke) (< vel 0)]))
+
+; SIGS -> Tank
+; get's the tank regardless if s is an Aim or a Fired
+(define (aim-or-fired-tank s)
+  (cond
+     [(aim? s) (aim-tank s)]
+     [(fired? s) (fired-tank s)]))
+
+; SIGS Tank -> SIGS
+; makes the same SIGS as aim-or-fired but with tank as tank
+(define (make-same-with-tank original tank)
+  (cond
+    [(aim? original) (make-aim (aim-ufo original) tank)]
+    [(fired? original) (make-fired (fired-ufo original) tank (fired-missile original))]))
+    
+; SIGS -> SIGS
+; ensures that a missile is fired at the posn-x of the tank and posn-y 0
+(check-expect (ensure-fired 
+               (make-aim (make-posn 100 200) (make-tank 10 3)))
+              (make-fired (make-posn 100 200) (make-tank 10 3) (make-posn 10 HEIGHT)))
+(check-expect (ensure-fired
+               (make-fired (make-posn 100 200) (make-tank 10 3) (make-posn 150 10)))
+              (make-fired (make-posn 100 200) (make-tank 10 3) (make-posn 150 10)))
+
+(define (ensure-fired s)
+  (cond
+    [(aim? s) (make-fired 
+               (aim-ufo s) 
+               (aim-tank s) 
+               (make-posn (tank-loc (aim-tank s)) 
+                          HEIGHT))]
+    [(fired? s) s]))
+
+(define (main ufo-posn-x)
+  (big-bang (make-aim (make-posn ufo-posn-x 0) (make-tank (/ WIDTH 2) 3))
+            [on-tick si-move]
+            [to-draw si-render]
+            [on-key si-control]
+            [stop-when si-game-over? si-render-final]))
+
 
 
