@@ -18,7 +18,7 @@
 (define TANK-BOTTOM (- HEIGHT (/ TANK-HEIGHT 2)))
 (define MISSILE (triangle 10 "solid" "red"))
 (define REACH-DIST 10)
-(define RAND-DIST 3)
+(define RAND-DIST 12)
 (define TANK-VEL 3)
 (define UFO-VEL 3)
 (define MISSILE-VEL 6)
